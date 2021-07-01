@@ -1,0 +1,160 @@
+proxy_cache_path  /tmp/cache-web levels=1:2 keys_zone=nuxt-cache:25m max_size=1g inactive=60m use_temp_path=off;
+
+map $sent_http_content_type $expires {
+    "text/html"                 1h; # set this to your needs
+    "text/html; charset=utf-8"  1h; # set this to your needs
+    default                     7d; # set this to your needs
+}
+
+server {
+	server_name beta.sellfashion.ru www.beta.sellfashion.ru;
+	ssl_certificate "/var/www/httpd-cert/sf/WildCard.crtca";
+	ssl_certificate_key "/var/www/httpd-cert/sf/WildCard.key";
+	ssl_ciphers EECDH:+AES256:-3DES:RSA+AES:!NULL:!RC4;
+	ssl_prefer_server_ciphers on;
+	ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+	add_header Strict-Transport-Security "max-age=31536000;";
+	ssl_dhparam /etc/ssl/certs/dhparam4096.pem;
+	charset off;
+	index index.php index.html;
+	disable_symlinks if_not_owner from=$root_path;
+	include /etc/nginx/vhosts-includes/*.conf;
+	include /etc/nginx/vhosts-resources/beta.sellfashion.ru/*.conf;
+	access_log /var/www/httpd-logs/beta.sellfashion.ru.access.log;
+	error_log /var/www/httpd-logs/beta.sellfashion.ru.error.log notice;
+	ssi on;
+	set $root_path /var/www/sf/data/www/beta.sellfashion.ru;
+	root $root_path;
+
+    gzip on;
+	gzip_comp_level 9;
+	gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript application/javascript;
+    gzip_min_length 1000;
+
+
+    location ~* \/products-web$ {
+        expires $expires;
+        #add_header Content-Security-Policy "default-src 'self' 'unsafe-inline';";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        add_header X-Frame-Options "SAMEORIGIN";
+        add_header X-Cache-Status $upstream_cache_status;
+
+        proxy_cache_methods POST;
+        proxy_redirect                      off;
+        proxy_set_header Host               $host;
+        proxy_set_header X-Real-IP          $remote_addr;
+        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto  $scheme;
+        proxy_ignore_headers                Cache-Control;
+        proxy_http_version                  1.1;
+        proxy_read_timeout                  1m;
+        proxy_connect_timeout               1m;
+        proxy_pass                          http://0.0.0.0:3000;
+        proxy_cache                         nuxt-cache;
+        proxy_cache_bypass                  $arg_nocache; # probably better to change this
+        proxy_cache_valid                   200 302  60m; # set this to your needs
+        proxy_cache_valid                   404 1m;  # set this to your needs
+        proxy_cache_lock                    on;
+        proxy_cache_use_stale error         timeout http_500 http_502 http_503 http_504;
+        proxy_cache_key                     "$request_uri|$request_body";
+    }
+
+    location ~* \/api {
+            proxy_ignore_headers X-Accel-Expires Expires Cache-Control cache-control;
+            add_header Cache-Control 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=-1';
+            expires -1;
+            proxy_cache_bypass 1;
+            proxy_http_version 1.1;
+            proxy_redirect off;
+            proxy_pass http://0.0.0.0:3000;
+    }
+
+
+    location / {
+
+            if ($http_cookie ~* "auth" ) {
+                proxy_pass http://0.0.0.0:3000;
+            }
+
+            expires $expires;
+            #add_header Content-Security-Policy "default-src 'self' 'unsafe-inline';";
+            #add_header Strict-Transport-Security "max-age=31536000; preload" always;
+            add_header X-Frame-Options "SAMEORIGIN";
+            add_header X-Cache-Status $upstream_cache_status;
+
+            proxy_redirect                      off;
+            proxy_set_header Host               $host;
+            proxy_set_header X-Real-IP          $remote_addr;
+            proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto  $scheme;
+            proxy_ignore_headers        Cache-Control;
+            proxy_http_version          1.1;
+            proxy_read_timeout          1m;
+            proxy_connect_timeout       1m;
+            proxy_pass                  http://0.0.0.0:3000; # set the address of the Node.js instance here
+            proxy_cache                 nuxt-cache;
+            proxy_cache_bypass          $arg_nocache; # probably better to change this
+            proxy_cache_valid           200 302  60m; # set this to your needs
+            proxy_cache_valid           404      1m;  # set this to your needs
+            proxy_cache_lock            on;
+            proxy_cache_use_stale error timeout http_500 http_502 http_503 http_504;
+            proxy_cache_key             $uri$is_args$args;
+
+		location ~ [^/]\.ph(p\d*|tml)$ {
+			try_files /does_not_exists @php;
+		}
+    }
+
+	location /php/ {
+		location ~ [^/]\.ph(p\d*|tml)$ {
+			try_files /does_not_exists @php;
+		}
+	}
+
+	location = /robots.txt {
+        try_files /robots.txt =404;
+    }
+
+	gzip_disable "msie6";
+	location @php {
+		fastcgi_index index.php;
+		fastcgi_param PHP_ADMIN_VALUE "sendmail_path = /usr/sbin/sendmail -t -i -f webmaster@beta.sellfashion.ru";
+		fastcgi_pass unix:/var/www/php-fpm/sf.sock;
+		fastcgi_split_path_info ^((?U).+\.ph(?:p\d*|tml))(/?.+)$;
+		try_files $uri =404;
+		include fastcgi_params;
+	}
+	listen 37.46.133.22:443 ssl;
+}
+server {
+	server_name beta.sellfashion.ru www.beta.sellfashion.ru;
+	charset off;
+	index index.php index.html;
+	disable_symlinks if_not_owner from=$root_path;
+	include /etc/nginx/vhosts-includes/*.conf;
+	include /etc/nginx/vhosts-resources/beta.sellfashion.ru/*.conf;
+	access_log /var/www/httpd-logs/beta.sellfashion.ru.access.log;
+	error_log /var/www/httpd-logs/beta.sellfashion.ru.error.log notice;
+	ssi on;
+	return 301 https://$host:443$request_uri;
+	set $root_path /var/www/sf/data/www/beta.sellfashion.ru;
+	root $root_path;
+	gzip on;
+	gzip_comp_level 9;
+	gzip_disable "msie6";
+	gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript application/javascript;
+	location / {
+		location ~ [^/]\.ph(p\d*|tml)$ {
+			try_files /does_not_exists @php;
+		}
+	}
+	location @php {
+		fastcgi_index index.php;
+		fastcgi_param PHP_ADMIN_VALUE "sendmail_path = /usr/sbin/sendmail -t -i -f webmaster@beta.sellfashion.ru";
+		fastcgi_pass unix:/var/www/php-fpm/sf.sock;
+		fastcgi_split_path_info ^((?U).+\.ph(?:p\d*|tml))(/?.+)$;
+		try_files $uri =404;
+		include fastcgi_params;
+	}
+	listen 37.46.133.22:80;
+}
